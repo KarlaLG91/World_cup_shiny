@@ -1,0 +1,12 @@
+# Sample player data for testing
+# Format: id,name,country,points
+
+id,name,country,points
+1,John Smith,Brazil,0
+2,Alice Johnson,France,0
+3,Bob Williams,England,0
+4,Carol Davis,Argentina,0
+5,David Wilson,Spain,0
+6,Emma Taylor,Germany,0
+7,Frank Anderson,Netherlands,0
+8,Grace Martinez,Belgium,0

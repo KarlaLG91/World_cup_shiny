@@ -1,0 +1,52 @@
+# Configuration file for World Cup Sweepstake App
+
+# Application Settings
+APP_NAME: "FIFA World Cup 2026 Sweepstake"
+VERSION: "1.0.0"
+DEFAULT_PORT: 3838
+
+# Photo Upload Settings
+PHOTO_SETTINGS:
+  MAX_SIZE_MB: 5
+  ALLOWED_FORMATS: [jpg, jpeg, png]
+  QUALITY: high
+  THUMBNAIL_SIZE: 100x100
+
+# Flag Settings
+FLAG_SETTINGS:
+  DIRECTORY: "www/flags"
+  SIZE: "100x60"
+  FORMAT: "png"
+
+# Scoring Rules
+SCORING:
+  WIN: 3
+  DRAW: 1
+  LOSS: 0
+  BONUS_POINTS:
+    KNOCKOUT_WIN: 1
+    FINAL: 5
+
+# World Cup 2026 Configuration
+TOURNAMENT:
+  YEAR: 2026
+  TOTAL_COUNTRIES: 48
+  GROUPS: 12
+  TEAMS_PER_GROUP: 4
+  START_DATE: "2026-06-12"
+  END_DATE: "2026-07-12"
+
+# UI Customization
+THEME:
+  PRIMARY_COLOR: "#2c3e50"
+  SECONDARY_COLOR: "#27ae60"
+  ACCENT_COLOR: "#e74c3c"
+  BACKGROUND: "#ecf0f1"
+  TEXT_COLOR: "#333333"
+
+# Data Directory Paths
+PATHS:
+  DATA: "data/"
+  PHOTOS: "www/photos/"
+  FLAGS: "www/flags/"
+  EXPORTS: "exports/"
