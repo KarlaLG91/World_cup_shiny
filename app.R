@@ -13,6 +13,7 @@ source("R/country_allocation.R")
 source("R/photo_management.R")
 source("R/scoring.R")
 source("R/pdf_export.R")
+source("R/persistence.R")
 
 # UI Definition
 ui <- dashboardPage(
@@ -194,37 +195,15 @@ ui <- dashboardPage(
 # Server Logic
 server <- function(input, output, session) {
 
+  # Load persisted data from CSV files
+  loaded_data <- load_app_data()
+  
   # Reactive values to store data
   rv <- reactiveValues(
-    players = data.frame(
-      id = integer(),
-      name = character(),
-      points = numeric(),
-      stringsAsFactors = FALSE
-    ),
-    allocations = data.frame(
-      player_id   = integer(),
-      player_name = character(),
-      country     = character(),
-      stringsAsFactors = FALSE
-    ),
-    matches = data.frame(
-      country1 = character(),
-      goals1 = numeric(),
-      country2 = character(),
-      goals2 = numeric(),
-      stringsAsFactors = FALSE
-    ),
-    # Knockout results: stage, match_id, team1, goals1, team2, goals2
-    ko_matches = data.frame(
-      stage    = character(),
-      match_id = character(),
-      team1    = character(),
-      goals1   = numeric(),
-      team2    = character(),
-      goals2   = numeric(),
-      stringsAsFactors = FALSE
-    ),
+    players = loaded_data$players,
+    allocations = loaded_data$allocations,
+    matches = loaded_data$matches,
+    ko_matches = loaded_data$ko_matches,
     photos = list()
   )
 
@@ -320,6 +299,10 @@ server <- function(input, output, session) {
       country     = character(),
       stringsAsFactors = FALSE
     )
+    
+    # Save data to files
+    save_players(rv$players)
+    save_allocations(rv$allocations)
 
     showNotification(paste("Added", length(names_list), "players"), type = "message")
   })
@@ -336,6 +319,9 @@ server <- function(input, output, session) {
     }
 
     rv$allocations <- allocate_countries_randomly(rv$players$name)
+    
+    # Save allocations to file
+    save_allocations(rv$allocations)
 
     # Populate country dropdowns in Results Tracker
     all_countries <- sort(rv$allocations$country)
@@ -623,6 +609,11 @@ server <- function(input, output, session) {
     
     rv$matches <- rbind(rv$matches, new_match)
     rv$players <- update_player_points(rv$players, rv$allocations, rv$matches)
+    
+    # Save data to files
+    save_matches(rv$matches)
+    save_players(rv$players)
+    
     showNotification("Match result recorded", type = "message")
   })
   
@@ -974,6 +965,12 @@ server <- function(input, output, session) {
                                stringsAsFactors = FALSE)
     rv$matches   <- rbind(rv$matches, ko_new_match)
     rv$players   <- update_player_points(rv$players, rv$allocations, rv$matches)
+    
+    # Save data to files
+    save_ko_matches(rv$ko_matches)
+    save_matches(rv$matches)
+    save_players(rv$players)
+    
     showNotification(paste("Knockout result saved:", t1, input$ko_goals1, "-", input$ko_goals2, t2), type = "message")
   })
 
@@ -1000,6 +997,10 @@ server <- function(input, output, session) {
       team2 = character(), goals2 = numeric(),
       stringsAsFactors = FALSE
     )
+    
+    # Save empty data to files
+    save_app_data(rv$players, rv$allocations, rv$matches, rv$ko_matches)
+    
     updateSelectInput(session, "match_country1", choices = list())
     updateSelectInput(session, "match_country2", choices = list())
     showNotification("All data cleared", type = "message")
