@@ -144,6 +144,33 @@ ui <- dashboardPage(
           style = "color:#666; margin-bottom:16px;"),
         uiOutput("knockout_legend"),
         br(),
+        fluidRow(
+          box(
+            title = "Record Knockout Result",
+            width = 12, status = "primary", solidHeader = TRUE,
+            fluidRow(
+              column(4,
+                selectInput("ko_match_id", "Match:", choices = c(
+                  setNames(paste0("R32-",  1:16), paste0("R32 Match ",   1:16)),
+                  setNames(paste0("R16-",  1:8),  paste0("R16 Match ",   1:8)),
+                  setNames(paste0("QF-",   1:4),  paste0("Quarter Final ", 1:4)),
+                  setNames(paste0("SF-",   1:2),  paste0("Semi Final ",  1:2)),
+                  c("F-1" = "Final", "3P-1" = "3rd Place Play-off")
+                ))
+              )
+            ),
+            fluidRow(
+              column(3, selectInput("ko_team1_sel", "Team 1:", choices = "TBD")),
+              column(2, numericInput("ko_goals1", "Goals:", value = 0, min = 0)),
+              column(2, div(class = "vs-label", "vs")),
+              column(2, numericInput("ko_goals2", "Goals:", value = 0, min = 0)),
+              column(3, selectInput("ko_team2_sel", "Team 2:", choices = "TBD"))
+            ),
+            br(),
+            actionButton("save_ko_result", "Save Result", class = "btn-primary btn-lg")
+          )
+        ),
+        br(),
         uiOutput("knockout_ui")
       ),
 
@@ -346,6 +373,15 @@ server <- function(input, output, session) {
       data.frame()
     }
   }, options = list(pageLength = 16))
+
+  # Keep country dropdowns in sync with allocations (handles relaunch with saved data)
+  observe({
+    if (nrow(rv$allocations) > 0) {
+      all_countries <- sort(rv$allocations$country)
+      updateSelectInput(session, "match_country1", choices = all_countries)
+      updateSelectInput(session, "match_country2", choices = all_countries)
+    }
+  })
   
   # TAB 3: Photo Upload UI
   output$photo_upload_ui <- renderUI({
@@ -661,17 +697,27 @@ server <- function(input, output, session) {
 
   # ── KNOCKOUT STAGE ──────────────────────────────────────────────────────────
 
-  # R32 pairings: label → c(home_seed, away_seed)
-  # Seeding notation: "1A" = group A winner, "2B" = group B runner-up
+  # R32 pairings: label → c(team1_seed, team2_seed)
+  # Seeding notation: "1A" = group A winner, "2B" = group B runner-up,
+  #   "3ABCDF" = best third-place team from among groups A/B/C/D/F
+  # Matches numbered as per official FIFA schedule (73–88)
   R32_PAIRINGS <- list(
-    "R32-1"  = c("1A", "2C"), "R32-2"  = c("1C", "2A"),
-    "R32-3"  = c("1B", "2D"), "R32-4"  = c("1D", "2B"),
-    "R32-5"  = c("1E", "2G"), "R32-6"  = c("1G", "2E"),
-    "R32-7"  = c("1F", "2H"), "R32-8"  = c("1H", "2F"),
-    "R32-9"  = c("1I", "2K"), "R32-10" = c("1K", "2I"),
-    "R32-11" = c("1J", "2L"), "R32-12" = c("1L", "2J"),
-    "R32-13" = c("1E", "3ABCD"), "R32-14" = c("1F", "3EFGH"), # wildcards approx
-    "R32-15" = c("1I", "3IJKL"), "R32-16" = c("1J", "3EFIJKL")
+    "R32-1"  = c("2A",      "2B"),       # Match 73
+    "R32-2"  = c("1E",      "3ABCDF"),   # Match 74
+    "R32-3"  = c("1F",      "2C"),       # Match 75
+    "R32-4"  = c("1C",      "2F"),       # Match 76
+    "R32-5"  = c("1I",      "3CDFGH"),   # Match 77
+    "R32-6"  = c("2E",      "2I"),       # Match 78
+    "R32-7"  = c("1A",      "3CEFHI"),   # Match 79
+    "R32-8"  = c("1L",      "3EHIJK"),   # Match 80
+    "R32-9"  = c("1D",      "3BEFIJ"),   # Match 81
+    "R32-10" = c("1G",      "3AEHIJ"),   # Match 82
+    "R32-11" = c("2K",      "2L"),       # Match 83
+    "R32-12" = c("1H",      "2J"),       # Match 84
+    "R32-13" = c("1B",      "3EFGIJ"),   # Match 85
+    "R32-14" = c("1J",      "2H"),       # Match 86
+    "R32-15" = c("1K",      "3DEIJL"),   # Match 87
+    "R32-16" = c("2D",      "2G")        # Match 88
   )
 
   # Helper: derive group winner/runner-up from current standings
@@ -704,16 +750,22 @@ server <- function(input, output, session) {
     get_group_top2(get_world_cup_groups(), rv$matches)
   })
 
-  # Build R16 slot → which R32 match winner feeds it
+  # Build R16 slot → which R32 match winners feed it (official FIFA bracket)
   R16_FROM_R32 <- list(
-    "R16-1" = c("R32-1",  "R32-2"),  "R16-2" = c("R32-3",  "R32-4"),
-    "R16-3" = c("R32-5",  "R32-6"),  "R16-4" = c("R32-7",  "R32-8"),
-    "R16-5" = c("R32-9",  "R32-10"), "R16-6" = c("R32-11", "R32-12"),
-    "R16-7" = c("R32-13", "R32-14"), "R16-8" = c("R32-15", "R32-16")
+    "R16-1" = c("R32-2",  "R32-5"),   # Match 89: W74 vs W77
+    "R16-2" = c("R32-1",  "R32-3"),   # Match 90: W73 vs W75
+    "R16-3" = c("R32-4",  "R32-6"),   # Match 91: W76 vs W78
+    "R16-4" = c("R32-7",  "R32-8"),   # Match 92: W79 vs W80
+    "R16-5" = c("R32-11", "R32-12"),  # Match 93: W83 vs W84
+    "R16-6" = c("R32-9",  "R32-10"),  # Match 94: W81 vs W82
+    "R16-7" = c("R32-14", "R32-16"),  # Match 95: W86 vs W88
+    "R16-8" = c("R32-13", "R32-15")   # Match 96: W85 vs W87
   )
   QF_FROM_R16 <- list(
-    "QF-1" = c("R16-1", "R16-2"), "QF-2" = c("R16-3", "R16-4"),
-    "QF-3" = c("R16-5", "R16-6"), "QF-4" = c("R16-7", "R16-8")
+    "QF-1" = c("R16-1", "R16-2"),   # Match 97: W89 vs W90
+    "QF-2" = c("R16-5", "R16-6"),   # Match 98: W93 vs W94
+    "QF-3" = c("R16-3", "R16-4"),   # Match 99: W91 vs W92
+    "QF-4" = c("R16-7", "R16-8")    # Match 100: W95 vs W96
   )
   SF_FROM_QF <- list(
     "SF-1" = c("QF-1", "QF-2"), "SF-2" = c("QF-3", "QF-4")
@@ -892,65 +944,63 @@ server <- function(input, output, session) {
             )
           )
         }
-      ),
-      br(),
-      # Score entry form
-      fluidRow(
-        box(
-          title = "Record Knockout Result", width = 6,
-          status = "warning", solidHeader = TRUE,
-          selectInput("ko_match_id", "Match:", choices = c(
-            setNames(paste0("R32-",  1:16), paste0("R32 Match ",   1:16)),
-            setNames(paste0("R16-",  1:8),  paste0("R16 Match ",   1:8)),
-            setNames(paste0("QF-",   1:4),  paste0("Quarter Final ", 1:4)),
-            setNames(paste0("SF-",   1:2),  paste0("Semi Final ",  1:2)),
-            c("F-1" = "Final", "3P-1" = "3rd Place Play-off")
-          )),
-          fluidRow(
-            column(4, numericInput("ko_goals1", "Team 1 Goals:", value = 0, min = 0)),
-            column(4, numericInput("ko_goals2", "Team 2 Goals:", value = 0, min = 0))
-          ),
-          actionButton("save_ko_result", "Save Result", class = "btn-warning btn-lg")
-        )
       )
     )
+  })
+
+  # Reactively populate team dropdowns when match selection or results change
+  observe({
+    req(input$ko_match_id)
+    mid   <- input$ko_match_id
+    tops  <- group_tops()
+    ko_df <- rv$ko_matches
+
+    slot_t <- function(slot) {
+      if (startsWith(slot, "W:")) {
+        m <- sub("^W:", "", slot)
+        ko_winner(m, ko_df) %||% paste0("W:", m)
+      } else if (startsWith(slot, "L:")) {
+        m <- sub("^L:", "", slot)
+        row <- ko_df[ko_df$match_id == m, ]
+        if (nrow(row) == 0 || is.na(row$goals1) || is.na(row$goals2)) return(paste0("L:", m))
+        if (row$goals1 < row$goals2) row$team1 else row$team2
+      } else {
+        tops[[slot]] %||% slot
+      }
+    }
+
+    t1 <- tryCatch({
+      if (startsWith(mid, "R32-"))      slot_t(R32_PAIRINGS[[mid]][1])
+      else if (startsWith(mid, "R16-")) slot_t(paste0("W:", R16_FROM_R32[[mid]][1]))
+      else if (startsWith(mid, "QF-"))  slot_t(paste0("W:", QF_FROM_R16[[mid]][1]))
+      else if (mid == "SF-1")           slot_t(paste0("W:", SF_FROM_QF[["SF-1"]][1]))
+      else if (mid == "SF-2")           slot_t(paste0("W:", SF_FROM_QF[["SF-2"]][1]))
+      else if (mid == "F-1")            slot_t("W:SF-1")
+      else if (mid == "3P-1")           slot_t("L:SF-1")
+      else mid
+    }, error = function(e) mid)
+
+    t2 <- tryCatch({
+      if (startsWith(mid, "R32-"))      slot_t(R32_PAIRINGS[[mid]][2])
+      else if (startsWith(mid, "R16-")) slot_t(paste0("W:", R16_FROM_R32[[mid]][2]))
+      else if (startsWith(mid, "QF-"))  slot_t(paste0("W:", QF_FROM_R16[[mid]][2]))
+      else if (mid == "SF-1")           slot_t(paste0("W:", SF_FROM_QF[["SF-1"]][2]))
+      else if (mid == "SF-2")           slot_t(paste0("W:", SF_FROM_QF[["SF-2"]][2]))
+      else if (mid == "F-1")            slot_t("W:SF-2")
+      else if (mid == "3P-1")           slot_t("L:SF-2")
+      else mid
+    }, error = function(e) mid)
+
+    updateSelectInput(session, "ko_team1_sel", choices = t1, selected = t1)
+    updateSelectInput(session, "ko_team2_sel", choices = t2, selected = t2)
   })
 
   # Save a knockout result
   observeEvent(input$save_ko_result, {
     mid   <- input$ko_match_id
-    tops  <- group_tops()
     ko_df <- rv$ko_matches
-
-    # Resolve teams for this match
-    get_t <- function(slot) {
-      if (startsWith(slot, "W:")) {
-        m <- sub("^W:", "", slot); ko_winner(m, ko_df) %||% slot
-      } else tops[[slot]] %||% slot
-    }
-
-    # Find teams from match definition
-    t1 <- tryCatch({
-      if (startsWith(mid, "R32-")) get_t(R32_PAIRINGS[[mid]][1])
-      else if (startsWith(mid, "R16-")) get_t(paste0("W:", R16_FROM_R32[[mid]][1]))
-      else if (startsWith(mid, "QF-"))  get_t(paste0("W:", QF_FROM_R16[[mid]][1]))
-      else if (mid == "SF-1") get_t(paste0("W:", SF_FROM_QF[["SF-1"]][1]))
-      else if (mid == "SF-2") get_t(paste0("W:", SF_FROM_QF[["SF-2"]][1]))
-      else if (mid == "F-1")  get_t("W:SF-1")
-      else if (mid == "3P-1") { row <- ko_df[ko_df$match_id == "SF-1", ]; if (nrow(row) > 0 && !is.na(row$goals1) && !is.na(row$goals2)) (if (row$goals1 < row$goals2) row$team1 else row$team2) else "L:SF-1" }
-      else mid
-    }, error = function(e) mid)
-
-    t2 <- tryCatch({
-      if (startsWith(mid, "R32-")) get_t(R32_PAIRINGS[[mid]][2])
-      else if (startsWith(mid, "R16-")) get_t(paste0("W:", R16_FROM_R32[[mid]][2]))
-      else if (startsWith(mid, "QF-"))  get_t(paste0("W:", QF_FROM_R16[[mid]][2]))
-      else if (mid == "SF-1") get_t(paste0("W:", SF_FROM_QF[["SF-1"]][2]))
-      else if (mid == "SF-2") get_t(paste0("W:", SF_FROM_QF[["SF-2"]][2]))
-      else if (mid == "F-1")  get_t("W:SF-2")
-      else if (mid == "3P-1") { row <- ko_df[ko_df$match_id == "SF-2", ]; if (nrow(row) > 0 && !is.na(row$goals1) && !is.na(row$goals2)) (if (row$goals1 < row$goals2) row$team1 else row$team2) else "L:SF-2" }
-      else mid
-    }, error = function(e) mid)
+    t1    <- input$ko_team1_sel
+    t2    <- input$ko_team2_sel
 
     new_row <- data.frame(stage = sub("-.*", "", mid), match_id = mid,
                           team1 = t1, goals1 = input$ko_goals1,
