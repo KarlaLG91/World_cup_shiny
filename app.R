@@ -586,7 +586,37 @@ server <- function(input, output, session) {
     # Depend on rv$photos so the board refreshes after photos are saved
     force(rv$photos)
 
-    board_cards <- lapply(seq_len(nrow(rv$players)), function(i) {
+    # Compute per-player GF, GA, GD from all played matches
+    player_gf <- setNames(rep(0L, nrow(rv$players)), rv$players$id)
+    player_ga <- setNames(rep(0L, nrow(rv$players)), rv$players$id)
+    if (nrow(rv$matches) > 0 && nrow(rv$allocations) > 0) {
+      for (mi in seq_len(nrow(rv$matches))) {
+        c1 <- rv$matches$country1[mi]; c2 <- rv$matches$country2[mi]
+        g1 <- rv$matches$goals1[mi];   g2 <- rv$matches$goals2[mi]
+        pid1 <- rv$allocations$player_id[rv$allocations$country == c1]
+        pid2 <- rv$allocations$player_id[rv$allocations$country == c2]
+        if (length(pid1) > 0) { player_gf[as.character(pid1[1])] <- player_gf[as.character(pid1[1])] + g1; player_ga[as.character(pid1[1])] <- player_ga[as.character(pid1[1])] + g2 }
+        if (length(pid2) > 0) { player_gf[as.character(pid2[1])] <- player_gf[as.character(pid2[1])] + g2; player_ga[as.character(pid2[1])] <- player_ga[as.character(pid2[1])] + g1 }
+      }
+    }
+    player_gd <- player_gf - player_ga
+
+    # Build sort key: primary = points desc, secondary = GD desc, tertiary = GF desc
+    pts <- rv$players$points
+    ids <- as.character(rv$players$id)
+    gd  <- player_gd[ids]
+    gf  <- player_gf[ids]
+    sorted_indices <- order(pts, gd, gf, decreasing = TRUE)
+
+    # Assign shared ranks: players with the same points share the same rank label
+    sorted_pts  <- pts[sorted_indices]
+    dense_ranks <- match(sorted_pts, unique(sorted_pts))   # 1 = highest points group
+    rank_labels <- c("\U0001F947 1st", "\U0001F948 2nd", "\U0001F949 3rd")
+    make_rank_label <- function(r) if (r <= 3) rank_labels[r] else paste0(r, "th")
+
+    board_cards <- lapply(seq_along(sorted_indices), function(pos) {
+      i          <- sorted_indices[pos]
+      rank       <- dense_ranks[pos]
       player     <- rv$players[i, ]
       photo_path <- get_photo_path(i)
 
@@ -604,15 +634,28 @@ server <- function(input, output, session) {
         )
       })
 
+      rank_label <- make_rank_label(rank)
+      border_col <- switch(as.character(rank),
+        "1" = "#f39c12", "2" = "#95a5a6", "3" = "#cd7f32", "#2c3e50")
+      pid_str    <- as.character(player$id)
+      p_gf <- player_gf[pid_str]; p_ga <- player_ga[pid_str]; p_gd <- player_gd[pid_str]
+
       column(
         3,
         div(
-          style = "border: 3px solid #2c3e50; padding: 15px; margin: 10px; border-radius: 8px; text-align: center; background: #ecf0f1;",
+          style = paste0("border: 3px solid ", border_col, "; padding: 15px; margin: 10px; border-radius: 8px; text-align: center; background: #ecf0f1;"),
+          div(style = "font-size: 18px; font-weight: bold; margin-bottom: 6px;", rank_label),
           if (!is.null(photo_path))
             tags$img(src = sub("^www/", "", photo_path),
                      style = "width: 100px; height: 100px; border-radius: 50%; border: 2px solid #34495e; margin-bottom: 8px;"),
           h3(player$name),
           p(strong("Points: "), player$points, style = "font-size: 16px; color: #27ae60;"),
+          p(
+            strong("GF: "), p_gf, " | ",
+            strong("GA: "), p_ga, " | ",
+            strong("GD: "), if (p_gd >= 0) paste0("+", p_gd) else p_gd,
+            style = "font-size: 12px; color: #555; margin-top: -6px;"
+          ),
           if (length(player_countries) > 0)
             tagList(
               tags$small(paste(length(player_countries), "countries")),
