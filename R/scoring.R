@@ -1,9 +1,13 @@
 # Points and scoring functions
+#
+# Scoring rules:
+#   Group stage  — Win: 3 pts | Draw: 1 pt | Loss: 0 pts
+#   Knockout     — Win (by goals or penalty shootout): 3 pts | Loss: 0 pts
+#
+# Each player may own multiple countries; allocations_df maps country -> player_id.
+# Points are recalculated from scratch on every call.
 
-#' Update player points based on match results.
-#' Scoring: Win = 3 points, Draw = 1 point, Loss = 0 points.
-#' Each player may own multiple countries; allocations_df maps country -> player_id.
-#' Points are recalculated from scratch on every call.
+#' Update player points based on group-stage match results.
 update_player_points <- function(players_df, allocations_df, matches_df) {
 
   if (nrow(matches_df) == 0) return(players_df)
@@ -32,6 +36,40 @@ update_player_points <- function(players_df, allocations_df, matches_df) {
       row2 <- which(players_df$id == pid2)
       if (goals2 > goals1)       players_df$points[row2] <- players_df$points[row2] + 3
       else if (goals2 == goals1) players_df$points[row2] <- players_df$points[row2] + 1
+    }
+  }
+
+  return(players_df)
+}
+
+#' Update player points from knockout stage results.
+#' Winner (by goals, or by penalty shootout when goals are level) gets 3 pts.
+#' pens1/pens2 are only consulted when goals are equal.
+update_ko_points <- function(players_df, allocations_df, ko_matches_df) {
+  if (nrow(ko_matches_df) == 0) return(players_df)
+
+  for (i in seq_len(nrow(ko_matches_df))) {
+    t1 <- ko_matches_df$team1[i]
+    t2 <- ko_matches_df$team2[i]
+    g1 <- ko_matches_df$goals1[i]
+    g2 <- ko_matches_df$goals2[i]
+    p1 <- if ("pens1" %in% names(ko_matches_df)) ko_matches_df$pens1[i] else NA_real_
+    p2 <- if ("pens2" %in% names(ko_matches_df)) ko_matches_df$pens2[i] else NA_real_
+
+    if (is.na(g1) || is.na(g2)) next
+
+    winner <- if (g1 > g2) t1
+              else if (g2 > g1) t2
+              else if (!is.na(p1) && !is.na(p2) && p1 != p2) {
+                if (p1 > p2) t1 else t2
+              } else next  # no result yet
+
+    idx_w <- which(allocations_df$country == winner)
+    if (length(idx_w) > 0) {
+      pid_w <- allocations_df$player_id[idx_w[1]]
+      row_w <- which(players_df$id == pid_w)
+      if (length(row_w) > 0)
+        players_df$points[row_w] <- players_df$points[row_w] + 3
     }
   }
 

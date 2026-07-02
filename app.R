@@ -15,6 +15,7 @@ source("R/scoring.R")
 source("R/pdf_export.R")
 source("R/persistence.R")
 
+
 # UI Definition
 ui <- dashboardPage(
   skin = "blue",
@@ -60,6 +61,20 @@ ui <- dashboardPage(
       .champion-box { border: 3px solid #f39c12; border-radius: 8px; padding: 10px;
                       text-align: center; background: #fffde7;
                       font-size: 15px; font-weight: bold; min-width: 130px; }
+
+      /* ── Eliminated country / player ── */
+      .country-eliminated img  { filter: grayscale(100%); opacity: 0.45; }
+      .country-eliminated small { text-decoration: line-through; color: #e74c3c !important;
+                                  opacity: 0.8; }
+      .player-card-eliminated  { background: #f0f0f0 !important; opacity: 0.75; }
+      .eliminated-stamp {
+        position: absolute; top: 50%; left: 50%;
+        transform: translate(-50%, -50%) rotate(-20deg);
+        border: 4px solid #e74c3c; color: #e74c3c;
+        padding: 6px 14px; font-size: 22px; font-weight: bold;
+        letter-spacing: 2px; border-radius: 4px;
+        opacity: 0.85; pointer-events: none; white-space: nowrap; z-index: 10;
+      }
     "))),
 
     tabItems(
@@ -140,7 +155,7 @@ ui <- dashboardPage(
       tabItem(
         tabName = "knockout",
         h2("Knockout Stage"),
-        p("Enter knockout results below. Team slots fill in automatically from group stage standings once groups are complete.",
+        p("The Round of 32 is assigned automatically once all group-stage matches have been recorded. Until then, unresolved slots stay as placeholders.",
           style = "color:#666; margin-bottom:16px;"),
         uiOutput("knockout_legend"),
         br(),
@@ -151,7 +166,27 @@ ui <- dashboardPage(
             fluidRow(
               column(4,
                 selectInput("ko_match_id", "Match:", choices = c(
-                  setNames(paste0("R32-",  1:16), paste0("R32 Match ",   1:16)),
+                  setNames(
+                    paste0("R32-", 1:16),
+                    c(
+                      "R32: South Africa vs Canada",
+                      "R32: Netherlands vs Morocco",
+                      "R32: Germany vs Paraguay",
+                      "R32: France vs Sweden",
+                      "R32: Belgium vs Senegal",
+                      "R32: USA vs Bosnia and Herzegovina",
+                      "R32: Spain vs Austria",
+                      "R32: Portugal vs Croatia",
+                      "R32: Brazil vs Japan",
+                      "R32: Ivory Coast vs Norway",
+                      "R32: Mexico vs Ecuador",
+                      "R32: England vs DR Congo",
+                      "R32: Switzerland vs Algeria",
+                      "R32: Colombia vs Ghana",
+                      "R32: Australia vs Egypt",
+                      "R32: Argentina vs Cape Verde"
+                    )
+                  ),
                   setNames(paste0("R16-",  1:8),  paste0("R16 Match ",   1:8)),
                   setNames(paste0("QF-",   1:4),  paste0("Quarter Final ", 1:4)),
                   setNames(paste0("SF-",   1:2),  paste0("Semi Final ",  1:2)),
@@ -165,6 +200,21 @@ ui <- dashboardPage(
               column(2, div(class = "vs-label", "vs")),
               column(2, numericInput("ko_goals2", "Goals:", value = 0, min = 0)),
               column(3, selectInput("ko_team2_sel", "Team 2:", choices = "TBD"))
+            ),
+            fluidRow(
+              column(12,
+                checkboxInput("ko_penalties", "Went to penalties?", value = FALSE)
+              )
+            ),
+            conditionalPanel(
+              condition = "input.ko_penalties == true",
+              fluidRow(
+                column(3, p("Penalty score:", style = "padding-top: 8px; font-weight: bold;")),
+                column(2, numericInput("ko_pens1", "Team 1 pens:", value = 0, min = 0)),
+                column(2, div(class = "vs-label", "vs")),
+                column(2, numericInput("ko_pens2", "Team 2 pens:", value = 0, min = 0)),
+                column(3)
+              )
             ),
             br(),
             actionButton("save_ko_result", "Save Result", class = "btn-primary btn-lg")
@@ -586,13 +636,25 @@ server <- function(input, output, session) {
     # Depend on rv$photos so the board refreshes after photos are saved
     force(rv$photos)
 
-    # Compute per-player GF, GA, GD from all played matches
+    # Compute per-player GF, GA, GD from group-stage AND knockout matches
     player_gf <- setNames(rep(0L, nrow(rv$players)), rv$players$id)
     player_ga <- setNames(rep(0L, nrow(rv$players)), rv$players$id)
     if (nrow(rv$matches) > 0 && nrow(rv$allocations) > 0) {
       for (mi in seq_len(nrow(rv$matches))) {
         c1 <- rv$matches$country1[mi]; c2 <- rv$matches$country2[mi]
         g1 <- rv$matches$goals1[mi];   g2 <- rv$matches$goals2[mi]
+        pid1 <- rv$allocations$player_id[rv$allocations$country == c1]
+        pid2 <- rv$allocations$player_id[rv$allocations$country == c2]
+        if (length(pid1) > 0) { player_gf[as.character(pid1[1])] <- player_gf[as.character(pid1[1])] + g1; player_ga[as.character(pid1[1])] <- player_ga[as.character(pid1[1])] + g2 }
+        if (length(pid2) > 0) { player_gf[as.character(pid2[1])] <- player_gf[as.character(pid2[1])] + g2; player_ga[as.character(pid2[1])] <- player_ga[as.character(pid2[1])] + g1 }
+      }
+    }
+    # Also include knockout match goals (normal-time goals only, not penalty shootout)
+    if (nrow(rv$ko_matches) > 0 && nrow(rv$allocations) > 0) {
+      for (mi in seq_len(nrow(rv$ko_matches))) {
+        c1 <- rv$ko_matches$team1[mi]; c2 <- rv$ko_matches$team2[mi]
+        g1 <- rv$ko_matches$goals1[mi]; g2 <- rv$ko_matches$goals2[mi]
+        if (is.na(g1) || is.na(g2)) next
         pid1 <- rv$allocations$player_id[rv$allocations$country == c1]
         pid2 <- rv$allocations$player_id[rv$allocations$country == c2]
         if (length(pid1) > 0) { player_gf[as.character(pid1[1])] <- player_gf[as.character(pid1[1])] + g1; player_ga[as.character(pid1[1])] <- player_ga[as.character(pid1[1])] + g2 }
@@ -614,6 +676,11 @@ server <- function(input, output, session) {
     rank_labels <- c("\U0001F947 1st", "\U0001F948 2nd", "\U0001F949 3rd")
     make_rank_label <- function(r) if (r <= 3) rank_labels[r] else paste0(r, "th")
 
+    # Compute eliminated countries for visual indicators
+    eliminated_countries <- get_eliminated_countries(
+      get_world_cup_groups(), rv$matches, rv$ko_matches, R32_SLOTS
+    )
+
     board_cards <- lapply(seq_along(sorted_indices), function(pos) {
       i          <- sorted_indices[pos]
       rank       <- dense_ranks[pos]
@@ -625,8 +692,11 @@ server <- function(input, output, session) {
       else character(0)
 
       country_items <- lapply(player_countries, function(country) {
+        is_out    <- country %in% eliminated_countries
         flag_file <- paste0("www/flags/", tolower(gsub(" ", "_", country)), ".png")
-        div(style = "display: flex; align-items: center; gap: 5px; margin: 2px 0;",
+        div(
+          class = if (is_out) "country-eliminated" else NULL,
+          style = "display: flex; align-items: center; gap: 5px; margin: 2px 0;",
           if (file.exists(flag_file))
             tags$img(src = paste0("flags/", tolower(gsub(" ", "_", country)), ".png"),
                      style = "width: 32px; height: 20px;"),
@@ -634,6 +704,7 @@ server <- function(input, output, session) {
         )
       })
 
+      all_out    <- length(player_countries) > 0 && all(player_countries %in% eliminated_countries)
       rank_label <- make_rank_label(rank)
       border_col <- switch(as.character(rank),
         "1" = "#f39c12", "2" = "#95a5a6", "3" = "#cd7f32", "#2c3e50")
@@ -643,7 +714,9 @@ server <- function(input, output, session) {
       column(
         3,
         div(
-          style = paste0("border: 3px solid ", border_col, "; padding: 15px; margin: 10px; border-radius: 8px; text-align: center; background: #ecf0f1;"),
+          class = if (all_out) "player-card-eliminated" else NULL,
+          style = paste0("border: 3px solid ", border_col, "; padding: 15px; margin: 10px; border-radius: 8px; text-align: center; background: #ecf0f1; position: relative;"),
+          if (all_out) div(class = "eliminated-stamp", "ELIMINATED"),
           div(style = "font-size: 18px; font-weight: bold; margin-bottom: 6px;", rank_label),
           if (!is.null(photo_path))
             tags$img(src = sub("^www/", "", photo_path),
@@ -688,7 +761,8 @@ server <- function(input, output, session) {
     
     rv$matches <- rbind(rv$matches, new_match)
     rv$players <- update_player_points(rv$players, rv$allocations, rv$matches)
-    
+    rv$players <- update_ko_points(rv$players, rv$allocations, rv$ko_matches)
+
     # Save data to files
     save_matches(rv$matches)
     save_players(rv$players)
@@ -740,105 +814,63 @@ server <- function(input, output, session) {
 
   # ── KNOCKOUT STAGE ──────────────────────────────────────────────────────────
 
-  # R32 pairings: label → c(team1_seed, team2_seed)
-  # Seeding notation: "1A" = group A winner, "2B" = group B runner-up,
-  #   "3ABCDF" = best third-place team from among groups A/B/C/D/F
-  # Matches numbered as per official FIFA schedule (73–88)
-  R32_PAIRINGS <- list(
-    "R32-1"  = c("2A",      "2B"),       # Match 73
-    "R32-2"  = c("1E",      "3ABCDF"),   # Match 74
-    "R32-3"  = c("1F",      "2C"),       # Match 75
-    "R32-4"  = c("1C",      "2F"),       # Match 76
-    "R32-5"  = c("1I",      "3CDFGH"),   # Match 77
-    "R32-6"  = c("2E",      "2I"),       # Match 78
-    "R32-7"  = c("1A",      "3CEFHI"),   # Match 79
-    "R32-8"  = c("1L",      "3EHIJK"),   # Match 80
-    "R32-9"  = c("1D",      "3BEFIJ"),   # Match 81
-    "R32-10" = c("1G",      "3AEHIJ"),   # Match 82
-    "R32-11" = c("2K",      "2L"),       # Match 83
-    "R32-12" = c("1H",      "2J"),       # Match 84
-    "R32-13" = c("1B",      "3EFGIJ"),   # Match 85
-    "R32-14" = c("1J",      "2H"),       # Match 86
-    "R32-15" = c("1K",      "3DEIJL"),   # Match 87
-    "R32-16" = c("2D",      "2G")        # Match 88
+  # Hardcoded Round of 32 matchups
+  R32_SLOTS <- data.frame(
+    match_id = paste0("R32-", 1:16),
+    team1 = c(
+      "South Africa", "Netherlands",  "Germany",       "France",
+      "Belgium",      "United States", "Spain",         "Portugal",
+      "Brazil",       "Ivory Coast",   "Mexico",        "England",
+      "Switzerland",  "Colombia",      "Australia",     "Argentina"
+    ),
+    team2 = c(
+      "Canada",                  "Morocco",  "Paraguay", "Sweden",
+      "Senegal",                 "Bosnia and Herzegovina", "Austria", "Croatia",
+      "Japan",                   "Norway",   "Ecuador",  "DR Congo",
+      "Algeria",                 "Ghana",    "Egypt",    "Cape Verde"
+    ),
+    stringsAsFactors = FALSE
   )
 
-  # Helper: derive group winner/runner-up from current standings
-  get_group_top2 <- function(groups, matches_df) {
-    result <- list()
-    for (grp in names(groups)) {
-      st <- calculate_group_standings(groups[[grp]], matches_df)
-      result[[paste0("1", grp)]] <- st$Team[1]
-      result[[paste0("2", grp)]] <- st$Team[2]
-    }
-    result
-  }
-
-  # Helper: resolve a seed label to a team name (or placeholder)
-  resolve_seed <- function(seed, standings_lookup) {
-    if (!is.null(standings_lookup[[seed]])) standings_lookup[[seed]] else seed
-  }
-
   # Helper: get winner of a ko match
+
   ko_winner <- function(match_id, ko_df) {
     row <- ko_df[ko_df$match_id == match_id, ]
     if (nrow(row) == 0 || is.na(row$goals1) || is.na(row$goals2)) return(NULL)
     if (row$goals1 > row$goals2) return(row$team1)
     if (row$goals2 > row$goals1) return(row$team2)
-    NULL  # draw — shouldn't happen in knockout
+    # Scores level — check penalty shootout
+    p1 <- if ("pens1" %in% names(row)) row$pens1 else NA
+    p2 <- if ("pens2" %in% names(row)) row$pens2 else NA
+    if (!is.na(p1) && !is.na(p2) && p1 != p2)
+      return(if (p1 > p2) row$team1 else row$team2)
+    NULL
   }
-
-  # Reactive: derive group top-2 from group stage results
-  group_tops <- reactive({
-    get_group_top2(get_world_cup_groups(), rv$matches)
-  })
 
   # Build R16 slot → which R32 match winners feed it (official FIFA bracket)
+  # Google/public route-to-final order.
+  # Adjacent R32 boxes feed the next R16 box.
   R16_FROM_R32 <- list(
-    "R16-1" = c("R32-2",  "R32-5"),   # Match 89: W74 vs W77
-    "R16-2" = c("R32-1",  "R32-3"),   # Match 90: W73 vs W75
-    "R16-3" = c("R32-4",  "R32-6"),   # Match 91: W76 vs W78
-    "R16-4" = c("R32-7",  "R32-8"),   # Match 92: W79 vs W80
-    "R16-5" = c("R32-11", "R32-12"),  # Match 93: W83 vs W84
-    "R16-6" = c("R32-9",  "R32-10"),  # Match 94: W81 vs W82
-    "R16-7" = c("R32-14", "R32-16"),  # Match 95: W86 vs W88
-    "R16-8" = c("R32-13", "R32-15")   # Match 96: W85 vs W87
+    "R16-1" = c("R32-1",  "R32-2"),   # South Africa/Canada vs Netherlands/Morocco
+    "R16-2" = c("R32-3",  "R32-4"),   # Germany/Paraguay vs France/Sweden
+    "R16-3" = c("R32-5",  "R32-6"),   # Belgium/Senegal vs USA/Bosnia
+    "R16-4" = c("R32-7",  "R32-8"),   # Spain/Austria vs Portugal/Croatia
+    "R16-5" = c("R32-9",  "R32-10"),  # Brazil/Japan vs Ivory Coast/Norway
+    "R16-6" = c("R32-11", "R32-12"),  # Mexico/Ecuador vs England/DR Congo
+    "R16-7" = c("R32-13", "R32-14"),  # Switzerland/Algeria vs Colombia/Ghana
+    "R16-8" = c("R32-15", "R32-16")   # Australia/Egypt vs Argentina/Cape Verde
   )
   QF_FROM_R16 <- list(
-    "QF-1" = c("R16-1", "R16-2"),   # Match 97: W89 vs W90
-    "QF-2" = c("R16-5", "R16-6"),   # Match 98: W93 vs W94
-    "QF-3" = c("R16-3", "R16-4"),   # Match 99: W91 vs W92
-    "QF-4" = c("R16-7", "R16-8")    # Match 100: W95 vs W96
+    "QF-1" = c("R16-2", "R16-1"),   # Germany/France route vs South Africa/Netherlands route
+    "QF-2" = c("R16-5", "R16-6"),   # Portugal/Spain route vs USA/Belgium route
+    "QF-3" = c("R16-3", "R16-4"),   # Brazil/Ivory Coast route vs Mexico/England route
+    "QF-4" = c("R16-7", "R16-8")    # Argentina/Australia route vs Switzerland/Colombia route
   )
   SF_FROM_QF <- list(
-    "SF-1" = c("QF-1", "QF-2"), "SF-2" = c("QF-3", "QF-4")
+    "SF-1" = c("QF-1", "QF-2"),
+    "SF-2" = c("QF-3", "QF-4")
   )
-  FINAL_FROM_SF  <- list("F-1" = c("SF-1", "SF-2"))
-  THIRD_FROM_SF  <- list("3P-1" = c("SF-1", "SF-2"))  # losers
-
-  # Resolve team for a given slot, tracing back through ko_matches
-  resolve_ko_team <- function(slot, ko_df, tops) {
-    # R32 — derive from group stages
-    if (startsWith(slot, "R32-")) {
-      pair <- R32_PAIRINGS[[slot]]
-      return(if (!is.null(pair)) resolve_seed(pair[1], tops) else slot)
-    }
-    # R32 away slot
-    if (startsWith(slot, "R32a-")) {
-      id  <- sub("R32a-", "R32-", slot)
-      pair <- R32_PAIRINGS[[id]]
-      return(if (!is.null(pair)) resolve_seed(pair[2], tops) else slot)
-    }
-    NULL
-  }
-
-  # Build full bracket team resolution
-  resolve_bracket_team <- function(slot_type, src_matches, ko_df, tops) {
-    # Try winner from previous round match
-    w <- ko_winner(src_matches[1], ko_df)
-    if (!is.null(w)) return(w)
-    NULL
-  }
+  FINAL_FROM_SF  <- list("F-1"  = c("SF-1", "SF-2"))
 
   # Build a match card UI widget
   # R NULL-coalescing helper
@@ -861,7 +893,6 @@ server <- function(input, output, session) {
 
   # Server: knockout bracket UI
   output$knockout_ui <- renderUI({
-    tops  <- group_tops()
     ko_df <- rv$ko_matches
     alloc <- rv$allocations
 
@@ -875,14 +906,12 @@ server <- function(input, output, session) {
         row <- ko_df[ko_df$match_id == mid, ]
         if (nrow(row) == 0 || is.na(row$goals1) || is.na(row$goals2)) return(paste0("L:", mid))
         if (row$goals1 < row$goals2) row$team1 else row$team2
-      } else {
-        tops[[slot]] %||% slot
-      }
+      } else slot
     }
 
-    # Resolve teams for each round
-    r32_t1 <- sapply(paste0("R32-", 1:16), function(id) slot_team(R32_PAIRINGS[[id]][1]))
-    r32_t2 <- sapply(paste0("R32-", 1:16), function(id) slot_team(R32_PAIRINGS[[id]][2]))
+    # R32 teams are hardcoded
+    r32_t1 <- setNames(R32_SLOTS$team1, R32_SLOTS$match_id)[paste0("R32-", 1:16)]
+    r32_t2 <- setNames(R32_SLOTS$team2, R32_SLOTS$match_id)[paste0("R32-", 1:16)]
     r16_t1 <- sapply(paste0("R16-", 1:8),  function(id) slot_team(paste0("W:", R16_FROM_R32[[id]][1])))
     r16_t2 <- sapply(paste0("R16-", 1:8),  function(id) slot_team(paste0("W:", R16_FROM_R32[[id]][2])))
     qf_t1  <- sapply(paste0("QF-",  1:4),  function(id) slot_team(paste0("W:", QF_FROM_R16[[id]][1])))
@@ -929,12 +958,32 @@ server <- function(input, output, session) {
     # Render a full match card (two team rows)
     mk <- function(mid, t1, t2) {
       row <- ko_df[ko_df$match_id == mid, ]
-      g1  <- if (nrow(row) > 0 && !is.na(row$goals1)) row$goals1 else NA
-      g2  <- if (nrow(row) > 0 && !is.na(row$goals2)) row$goals2 else NA
-      w   <- if (!is.na(g1) && !is.na(g2)) (if (g1 > g2) t1 else t2) else NULL
+      # Detect if teams were stored in reverse order and swap goals accordingly
+      swapped <- nrow(row) > 0 &&
+                 !is.na(row$team1) && !is.na(row$team2) &&
+                 isTRUE(row$team1 == t2) && isTRUE(row$team2 == t1)
+      g1  <- if (nrow(row) > 0 && !is.na(if (swapped) row$goals2 else row$goals1))
+               (if (swapped) row$goals2 else row$goals1) else NA
+      g2  <- if (nrow(row) > 0 && !is.na(if (swapped) row$goals1 else row$goals2))
+               (if (swapped) row$goals1 else row$goals2) else NA
+      p1  <- if (nrow(row) > 0 && "pens1" %in% names(row) &&
+                 !is.na(if (swapped) row$pens2 else row$pens1))
+               (if (swapped) row$pens2 else row$pens1) else NA
+      p2  <- if (nrow(row) > 0 && "pens2" %in% names(row) &&
+                 !is.na(if (swapped) row$pens1 else row$pens2))
+               (if (swapped) row$pens1 else row$pens2) else NA
+      has_pens <- !is.na(p1) && !is.na(p2)
+      w   <- if (!is.na(g1) && !is.na(g2)) {
+        if (g1 > g2) t1
+        else if (g2 > g1) t2
+        else if (has_pens && p1 != p2) (if (p1 > p2) t1 else t2)
+        else NULL
+      } else NULL
+      s1  <- if (!is.na(g1)) paste0(g1, if (has_pens) paste0(" (", p1, "p)") else "") else NA
+      s2  <- if (!is.na(g2)) paste0(g2, if (has_pens) paste0(" (", p2, "p)") else "") else NA
       div(class = "ko-match",
-        team_row(t1, g1, !is.null(w) && identical(w, t1)),
-        team_row(t2, g2, !is.null(w) && identical(w, t2))
+        team_row(t1, s1, !is.null(w) && identical(w, t1)),
+        team_row(t2, s2, !is.null(w) && identical(w, t2))
       )
     }
 
@@ -995,7 +1044,6 @@ server <- function(input, output, session) {
   observe({
     req(input$ko_match_id)
     mid   <- input$ko_match_id
-    tops  <- group_tops()
     ko_df <- rv$ko_matches
 
     slot_t <- function(slot) {
@@ -1007,13 +1055,13 @@ server <- function(input, output, session) {
         row <- ko_df[ko_df$match_id == m, ]
         if (nrow(row) == 0 || is.na(row$goals1) || is.na(row$goals2)) return(paste0("L:", m))
         if (row$goals1 < row$goals2) row$team1 else row$team2
-      } else {
-        tops[[slot]] %||% slot
-      }
+      } else slot
     }
 
+    r32_row <- R32_SLOTS[R32_SLOTS$match_id == mid, ]
+
     t1 <- tryCatch({
-      if (startsWith(mid, "R32-"))      slot_t(R32_PAIRINGS[[mid]][1])
+      if (startsWith(mid, "R32-"))      r32_row$team1[1]
       else if (startsWith(mid, "R16-")) slot_t(paste0("W:", R16_FROM_R32[[mid]][1]))
       else if (startsWith(mid, "QF-"))  slot_t(paste0("W:", QF_FROM_R16[[mid]][1]))
       else if (mid == "SF-1")           slot_t(paste0("W:", SF_FROM_QF[["SF-1"]][1]))
@@ -1024,7 +1072,7 @@ server <- function(input, output, session) {
     }, error = function(e) mid)
 
     t2 <- tryCatch({
-      if (startsWith(mid, "R32-"))      slot_t(R32_PAIRINGS[[mid]][2])
+      if (startsWith(mid, "R32-"))      r32_row$team2[1]
       else if (startsWith(mid, "R16-")) slot_t(paste0("W:", R16_FROM_R32[[mid]][2]))
       else if (startsWith(mid, "QF-"))  slot_t(paste0("W:", QF_FROM_R16[[mid]][2]))
       else if (mid == "SF-1")           slot_t(paste0("W:", SF_FROM_QF[["SF-1"]][2]))
@@ -1036,35 +1084,38 @@ server <- function(input, output, session) {
 
     updateSelectInput(session, "ko_team1_sel", choices = t1, selected = t1)
     updateSelectInput(session, "ko_team2_sel", choices = t2, selected = t2)
+    updateCheckboxInput(session, "ko_penalties", value = FALSE)
   })
 
   # Save a knockout result
   observeEvent(input$save_ko_result, {
-    mid   <- input$ko_match_id
-    ko_df <- rv$ko_matches
-    t1    <- input$ko_team1_sel
-    t2    <- input$ko_team2_sel
+    mid          <- input$ko_match_id
+    ko_df        <- rv$ko_matches
+    t1           <- input$ko_team1_sel
+    t2           <- input$ko_team2_sel
+    went_to_pens <- isTRUE(input$ko_penalties)
+    p1           <- if (went_to_pens) input$ko_pens1 else NA_real_
+    p2           <- if (went_to_pens) input$ko_pens2 else NA_real_
 
     new_row <- data.frame(stage = sub("-.*", "", mid), match_id = mid,
                           team1 = t1, goals1 = input$ko_goals1,
                           team2 = t2, goals2 = input$ko_goals2,
+                          pens1 = p1, pens2 = p2,
                           stringsAsFactors = FALSE)
     # Upsert
     rv$ko_matches <- rbind(ko_df[ko_df$match_id != mid, ], new_row)
 
-    # Award sweepstake points for knockout match
-    ko_new_match <- data.frame(country1 = t1, goals1 = input$ko_goals1,
-                               country2 = t2, goals2 = input$ko_goals2,
-                               stringsAsFactors = FALSE)
-    rv$matches   <- rbind(rv$matches, ko_new_match)
-    rv$players   <- update_player_points(rv$players, rv$allocations, rv$matches)
-    
+    # Recalculate all points: group stage first, then KO on top
+    rv$players <- update_player_points(rv$players, rv$allocations, rv$matches)
+    rv$players <- update_ko_points(rv$players, rv$allocations, rv$ko_matches)
+
     # Save data to files
     save_ko_matches(rv$ko_matches)
-    save_matches(rv$matches)
     save_players(rv$players)
-    
-    showNotification(paste("Knockout result saved:", t1, input$ko_goals1, "-", input$ko_goals2, t2), type = "message")
+
+    score_str <- paste0(t1, " ", input$ko_goals1, " - ", input$ko_goals2, " ", t2)
+    if (went_to_pens) score_str <- paste0(score_str, " (pens: ", p1, "-", p2, ")")
+    showNotification(paste("Knockout result saved:", score_str), type = "message")
   })
 
   # ── KNOCKOUT STAGE end ───────────────────────────────────────────────────
@@ -1088,9 +1139,9 @@ server <- function(input, output, session) {
       stage = character(), match_id = character(),
       team1 = character(), goals1 = numeric(),
       team2 = character(), goals2 = numeric(),
+      pens1 = numeric(), pens2 = numeric(),
       stringsAsFactors = FALSE
     )
-    
     # Save empty data to files
     save_app_data(rv$players, rv$allocations, rv$matches, rv$ko_matches)
     

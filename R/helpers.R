@@ -112,6 +112,61 @@ calculate_group_standings <- function(group_countries, matches_df) {
   standings[order(-standings$Pts, -standings$GD, -standings$GF), ]
 }
 
+#' Return a character vector of country names that are eliminated from the tournament.
+#'
+#' A country is eliminated when any of the following is true:
+#'   - It finished 4th in its group (once all 6 group-stage matches are played).
+#'   - It finished 3rd in its group but knockout_slots is populated and the team
+#'     is not listed there (i.e., it didn't qualify as a best third-place team).
+#'   - It lost in a knockout round match (including 3rd-place play-off).
+get_eliminated_countries <- function(groups, matches_df, ko_matches_df, knockout_slots) {
+  eliminated <- character(0)
+
+  # --- Group-stage eliminations ---
+  for (grp in names(groups)) {
+    teams      <- groups[[grp]]
+    grp_played <- if (is.null(matches_df) || nrow(matches_df) == 0L) 0L else
+      sum(matches_df$country1 %in% teams & matches_df$country2 %in% teams)
+    if (grp_played < 6L) next  # group not yet complete
+
+    standing <- calculate_group_standings(teams, matches_df)
+
+    # 4th place is always eliminated
+    if (nrow(standing) >= 4L)
+      eliminated <- c(eliminated, standing$Team[4L])
+
+    # 3rd place is eliminated only when we know who qualified for the R32
+    if (nrow(standing) >= 3L && !is.null(knockout_slots) && nrow(knockout_slots) > 0L) {
+      third     <- standing$Team[3L]
+      r32_teams <- c(knockout_slots$team1, knockout_slots$team2)
+      if (!(third %in% r32_teams))
+        eliminated <- c(eliminated, third)
+    }
+  }
+
+  # --- Knockout-stage eliminations ---
+  if (!is.null(ko_matches_df) && nrow(ko_matches_df) > 0L) {
+    for (i in seq_len(nrow(ko_matches_df))) {
+      g1 <- ko_matches_df$goals1[i]
+      g2 <- ko_matches_df$goals2[i]
+      if (is.na(g1) || is.na(g2)) next
+
+      p1 <- if ("pens1" %in% names(ko_matches_df)) ko_matches_df$pens1[i] else NA_real_
+      p2 <- if ("pens2" %in% names(ko_matches_df)) ko_matches_df$pens2[i] else NA_real_
+
+      loser <- if (g1 > g2) ko_matches_df$team2[i]
+               else if (g2 > g1) ko_matches_df$team1[i]
+               else if (!is.na(p1) && !is.na(p2) && p1 != p2)
+                 if (p1 > p2) ko_matches_df$team2[i] else ko_matches_df$team1[i]
+               else next
+
+      eliminated <- c(eliminated, loser)
+    }
+  }
+
+  unique(eliminated)
+}
+
 #' Create a results summary
 create_results_summary <- function(players_df, matches_df) {
   summary <- players_df %>%

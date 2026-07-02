@@ -73,11 +73,14 @@ load_ko_matches <- function() {
     if (!("goals1" %in% names(df))) df$goals1 <- numeric()
     if (!("team2" %in% names(df))) df$team2 <- character()
     if (!("goals2" %in% names(df))) df$goals2 <- numeric()
-    return(df[, c("stage", "match_id", "team1", "goals1", "team2", "goals2")])
+    if (!("pens1" %in% names(df))) df$pens1 <- NA_real_
+    if (!("pens2" %in% names(df))) df$pens2 <- NA_real_
+    return(df[, c("stage", "match_id", "team1", "goals1", "team2", "goals2", "pens1", "pens2")])
   }
-  data.frame(stage = character(), match_id = character(), 
+  data.frame(stage = character(), match_id = character(),
              team1 = character(), goals1 = numeric(),
-             team2 = character(), goals2 = numeric(), stringsAsFactors = FALSE)
+             team2 = character(), goals2 = numeric(),
+             pens1 = numeric(), pens2 = numeric(), stringsAsFactors = FALSE)
 }
 
 # Save all data to CSV files
