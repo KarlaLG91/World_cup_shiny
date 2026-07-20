@@ -190,7 +190,7 @@ ui <- dashboardPage(
                   setNames(paste0("R16-",  1:8),  paste0("R16 Match ",   1:8)),
                   setNames(paste0("QF-",   1:4),  paste0("Quarter Final ", 1:4)),
                   setNames(paste0("SF-",   1:2),  paste0("Semi Final ",  1:2)),
-                  c("F-1" = "Final", "3P-1" = "3rd Place Play-off")
+                  c("Final" = "F-1", "3rd Place Play-off" = "3P-1")
                 ))
               )
             ),
@@ -681,6 +681,13 @@ server <- function(input, output, session) {
       get_world_cup_groups(), rv$matches, rv$ko_matches, R32_SLOTS
     )
 
+    # Determine cup winner (winning country + owning player)
+    cup_champion_country   <- ko_winner("F-1", rv$ko_matches)
+    cup_champion_player_id <- if (!is.null(cup_champion_country) && nrow(rv$allocations) > 0) {
+      rows <- rv$allocations[rv$allocations$country == cup_champion_country, ]
+      if (nrow(rows) > 0) rows$player_id[1] else NULL
+    } else NULL
+
     board_cards <- lapply(seq_along(sorted_indices), function(pos) {
       i          <- sorted_indices[pos]
       rank       <- dense_ranks[pos]
@@ -705,9 +712,11 @@ server <- function(input, output, session) {
       })
 
       all_out    <- length(player_countries) > 0 && all(player_countries %in% eliminated_countries)
+      is_cup_winner <- !is.null(cup_champion_player_id) && identical(player$id, cup_champion_player_id)
       rank_label <- make_rank_label(rank)
       border_col <- switch(as.character(rank),
         "1" = "#f39c12", "2" = "#95a5a6", "3" = "#cd7f32", "#2c3e50")
+      if (is_cup_winner) border_col <- "#f39c12"
       pid_str    <- as.character(player$id)
       p_gf <- player_gf[pid_str]; p_ga <- player_ga[pid_str]; p_gd <- player_gd[pid_str]
 
@@ -717,6 +726,9 @@ server <- function(input, output, session) {
           class = if (all_out) "player-card-eliminated" else NULL,
           style = paste0("border: 3px solid ", border_col, "; padding: 15px; margin: 10px; border-radius: 8px; text-align: center; background: #ecf0f1; position: relative;"),
           if (all_out) div(class = "eliminated-stamp", "ELIMINATED"),
+          if (is_cup_winner)
+            div(style = "background: #f39c12; color: #fff; border-radius: 6px; padding: 4px 10px; font-size: 15px; font-weight: bold; margin-bottom: 8px; letter-spacing: 1px;",
+                "\U0001F3C6 Cup Winner!"),
           div(style = "font-size: 18px; font-weight: bold; margin-bottom: 6px;", rank_label),
           if (!is.null(photo_path))
             tags$img(src = sub("^www/", "", photo_path),
@@ -867,8 +879,8 @@ server <- function(input, output, session) {
     "QF-4" = c("R16-7", "R16-8")    # Argentina/Australia route vs Switzerland/Colombia route
   )
   SF_FROM_QF <- list(
-    "SF-1" = c("QF-1", "QF-2"),
-    "SF-2" = c("QF-3", "QF-4")
+    "SF-1" = c("QF-3", "QF-1"),
+    "SF-2" = c("QF-4", "QF-2")
   )
   FINAL_FROM_SF  <- list("F-1"  = c("SF-1", "SF-2"))
 
